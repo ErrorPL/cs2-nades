@@ -387,12 +387,13 @@
     <h2>⭐ Your favourites</h2>
     <p>Click the <b>☆</b> next to any nade's name to add it (click <b>★</b> again to remove it). Favourites are saved in this browser, so every friend who opens this file keeps their own list.</p>
     <div class="step"><span class="n">1</span><div>
-      <p><b>Share your list</b> with a friend: copy it and send it to them (Discord, WhatsApp…).</p>
+      <p><b>Share your list</b> with a friend: copy it and send it to them (Discord, WhatsApp…). It contains your favourites and your hidden nades.</p>
       <button class="primary" type="button" id="favCopy">Copy my favourites</button>
     </div></div>
     <div class="step"><span class="n">2</span><div>
       <p><b>Use a friend's list</b>: paste what they sent you.</p>
-      <textarea id="favPaste" placeholder="Paste a friend's favourites here"></textarea>
+      <textarea id="favPaste" placeholder="Paste a friend's list here"></textarea>
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-bottom:8px;font-size:14px"><input type="checkbox" id="favWithHidden" checked> Also hide the nades they have hidden</label>
       <div class="row"><button class="primary" type="button" id="favAdd">Add to mine</button><button class="ghost" type="button" id="favReplace">Replace mine</button></div>
     </div></div>
     <div class="step"><span class="n">3</span><div>
@@ -675,17 +676,17 @@ try { const ui = JSON.parse(localStorage.getItem(UI_KEY) || "{}"); if (ui.fav ==
 const FAV_KEY = "cs2-nade-cheatsheet-myfavs";
 let FAV_OVR = {};
 let USE_BUILTIN = null;                                   // show the list built into the sheet? (off for new visitors)
-let HIDDEN = new Set();                                   // nades this browser has hidden
+let HIDDEN = null;                                        // nades this browser has hidden (null = use the sheet's)
 try {
   const o = JSON.parse(localStorage.getItem(FAV_KEY) || "{}");
   if (o && typeof o.set === "object") { FAV_OVR = o.set; USE_BUILTIN = typeof o.builtin === "boolean" ? o.builtin : true; }   // v1 = used the built-in list
-  if (o && Array.isArray(o.hidden)) HIDDEN = new Set(o.hidden);
-} catch (e) {}
+  if (o && Array.isArray(o.hidden)) HIDDEN = new Set(o.hidden); else HIDDEN = null;
+} catch (e) { HIDDEN = null; }
 const builtinFav = n => n.fav !== false;                  // older lists only had favourites
 const useBuiltin = () => USE_BUILTIN === null ? DATA.favDefault === true : USE_BUILTIN;
 const baseFav = n => useBuiltin() && builtinFav(n);
 const isFav = n => { const o = FAV_OVR[keyOf(n)]; return o === undefined ? baseFav(n) : o; };
-const isHidden = n => HIDDEN.has(keyOf(n));
+const isHidden = n => { if (!HIDDEN) HIDDEN = new Set(Array.isArray(DATA.hiddenDefault) ? DATA.hiddenDefault : []); return HIDDEN.has(keyOf(n)); };
 function saveFavs(){ try { localStorage.setItem(FAV_KEY, JSON.stringify({ v: 2, set: FAV_OVR, builtin: useBuiltin(), hidden: [...HIDDEN] })); return true; } catch (e) { return false; } }
 function setFav(n, on){ if (on === baseFav(n)) delete FAV_OVR[keyOf(n)]; else FAV_OVR[keyOf(n)] = on; }
 const SPEEDS = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8];
@@ -1233,6 +1234,7 @@ function parseFavList(text){
   let d; try { d = JSON.parse(text); } catch (e) { throw new Error("that isn't a copied favourites list."); }
   const keys = Array.isArray(d) ? d : (d && Array.isArray(d.favourites) ? d.favourites : null);
   if (!keys || !keys.every(k => typeof k === "string")) throw new Error("that isn't a copied favourites list.");
+  keys.hiddenList = d && Array.isArray(d.hidden) ? d.hidden.filter(k => typeof k === "string") : null;
   return keys;
 }
 let confirmArm = null;
@@ -1316,7 +1318,7 @@ function applyUpdate(){
 }
 
 function buildFile(){
-  const baked = Object.assign({}, DATA, { favDefault: true, nades: (DATA.nades || []).map(n => Object.assign({}, n, { fav: isFav(n) })) });
+  const baked = Object.assign({}, DATA, { favDefault: true, hiddenDefault: [...HIDDEN], nades: (DATA.nades || []).map(n => Object.assign({}, n, { fav: isFav(n) })) });
   const json = JSON.stringify(baked).replace(/</g, "\\u003c");
   const body = SNAP.body.map(part => part.startsWith('<script id="nade-data"')
     ? `<script id="nade-data" type="application/json">${json}<\/script>` : part);
@@ -1361,12 +1363,21 @@ document.addEventListener("click", e => {
   const tf = t.closest("[data-togglefav]");
   if (tf) { const key = tf.closest(".nade").dataset.key, n = NADE_BY_KEY.get(key); setFav(n, !isFav(n)); if (!saveFavs()) alertFav(); refreshFavUI([key]); if (RADAR.key === key) drawRadar(); return; }
   if (t.closest("#openFav")) { $("#favStatus").textContent = ""; $("#favDlg").classList.add("open"); return; }
-  if (t.closest("#favCopy")) { const keys = favKeysNow(); copyText(JSON.stringify({ cs2favourites: 1, favourites: keys }), t.closest("#favCopy")); favStatus(`Copied ${keys.length} favourites — paste them to your friend. They open this sheet, click ⭐ Manage and paste it under step 2.`); return; }
+  if (t.closest("#favCopy")) { const keys = favKeysNow(); copyText(JSON.stringify({ cs2favourites: 1, favourites: keys, hidden: [...HIDDEN] }), t.closest("#favCopy")); favStatus(`Copied ${keys.length} favourites and ${HIDDEN.size} hidden nades — paste them to your friend. They open this sheet, click ⭐ Manage and paste it under step 2.`); return; }
   const fa = t.closest("#favAdd, #favReplace");
   if (fa) {
     let keys; try { keys = parseFavList($("#favPaste").value.trim()); } catch (err) { favStatus("Couldn't read that: " + err.message, false); return; }
     const r = applyFavList(keys, fa.id === "favAdd" ? "add" : "replace");
-    favStatus(`✓ ${fa.id === "favAdd" ? "Added" : "Replaced with"} ${r.matched} favourites${r.unknown ? ` (${r.unknown} aren't in this sheet — their maps or nades are missing here)` : ""}. You now have ${favKeysNow().length}.`);
+    let hidMsg = "";
+    if (keys.hiddenList && $("#favWithHidden").checked) {
+      const known = new Set((DATA.nades || []).map(keyOf)), list = keys.hiddenList.filter(k => known.has(k));
+      if (fa.id === "favReplace") HIDDEN = new Set(list); else list.forEach(k => HIDDEN.add(k));
+      saveFavs();
+      document.querySelectorAll(".nade").forEach(c => { const on = HIDDEN.has(c.dataset.key); c.dataset.hid = on ? "1" : "0"; c.querySelector("[data-hide]").textContent = on ? "👁 Unhide" : "🙈 Hide"; });
+      renderFavSeg(); applyFilters(); if (view === "maps") drawMaps(false);
+      hidMsg = ` Hidden nades: ${HIDDEN.size}.`;
+    }
+    favStatus(`✓ ${fa.id === "favAdd" ? "Added" : "Replaced with"} ${r.matched} favourites${r.unknown ? ` (${r.unknown} aren't in this sheet — their maps or nades are missing here)` : ""}. You now have ${favKeysNow().length}.${hidMsg}`);
     return;
   }
   const fc = t.closest("#favClear"); if (fc) { armed(fc, "Click again to clear all", () => { (DATA.nades || []).forEach(n => setFav(n, false)); saveFavs(); refreshFavUI((DATA.nades || []).map(keyOf)); favStatus("All favourites cleared."); }); return; }
