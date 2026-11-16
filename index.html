@@ -172,6 +172,14 @@
   .vctl button{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:3px 7px;font-weight:600;font-size:12px;cursor:pointer}
   .vctl button[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
   .vctl .sp{flex:1}
+  .vctl [data-snap]{display:none}
+  .nade.has-video .vctl [data-snap]{display:inline-block}
+  .snaps{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;font-size:12px;color:var(--muted)}
+  .snaps:empty{display:none}
+  .snaps button{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:4px 8px;font-weight:600;font-size:12px;cursor:pointer;border-radius:6px}
+  .snapchip{display:inline-flex}
+  .snapchip button:first-child{border-radius:6px 0 0 6px;border-color:var(--accent);color:var(--accent)}
+  .snapchip button:last-child{border-radius:0 6px 6px 0;border-left:0;color:var(--muted)}
 
   .info h3{font-size:28px;line-height:1.1}
   .info h3 .type{margin-left:8px;position:relative;top:-3px}
@@ -387,7 +395,7 @@
     <h2>⭐ Your favourites</h2>
     <p>Click the <b>☆</b> next to any nade's name to add it (click <b>★</b> again to remove it). Favourites are saved in this browser, so every friend who opens this file keeps their own list.</p>
     <div class="step"><span class="n">1</span><div>
-      <p><b>Share your list</b> with a friend: copy it and send it to them (Discord, WhatsApp…). It contains your favourites and your hidden nades.</p>
+      <p><b>Share your list</b> with a friend: copy it and send it to them (Discord, WhatsApp…). It contains your favourites, your hidden nades and your saved video frames.</p>
       <button class="primary" type="button" id="favCopy">Copy my favourites</button>
     </div></div>
     <div class="step"><span class="n">2</span><div>
@@ -677,17 +685,27 @@ const FAV_KEY = "cs2-nade-cheatsheet-myfavs";
 let FAV_OVR = {};
 let USE_BUILTIN = null;                                   // show the list built into the sheet? (off for new visitors)
 let HIDDEN = null;                                        // nades this browser has hidden (null = use the sheet's)
+let SNAPS = null;                                         // saved video moments per nade: { key: [seconds, ...] }
 try {
   const o = JSON.parse(localStorage.getItem(FAV_KEY) || "{}");
   if (o && typeof o.set === "object") { FAV_OVR = o.set; USE_BUILTIN = typeof o.builtin === "boolean" ? o.builtin : true; }   // v1 = used the built-in list
   if (o && Array.isArray(o.hidden)) HIDDEN = new Set(o.hidden); else HIDDEN = null;
+  if (o && o.snaps && typeof o.snaps === "object") SNAPS = o.snaps;
 } catch (e) { HIDDEN = null; }
 const builtinFav = n => n.fav !== false;                  // older lists only had favourites
 const useBuiltin = () => USE_BUILTIN === null ? DATA.favDefault === true : USE_BUILTIN;
 const baseFav = n => useBuiltin() && builtinFav(n);
 const isFav = n => { const o = FAV_OVR[keyOf(n)]; return o === undefined ? baseFav(n) : o; };
 const isHidden = n => { if (!HIDDEN) HIDDEN = new Set(Array.isArray(DATA.hiddenDefault) ? DATA.hiddenDefault : []); return HIDDEN.has(keyOf(n)); };
-function saveFavs(){ try { localStorage.setItem(FAV_KEY, JSON.stringify({ v: 2, set: FAV_OVR, builtin: useBuiltin(), hidden: [...HIDDEN] })); return true; } catch (e) { return false; } }
+function saveFavs(){ try { localStorage.setItem(FAV_KEY, JSON.stringify({ v: 2, set: FAV_OVR, builtin: useBuiltin(), hidden: [...HIDDEN], snaps: SNAPS || {} })); return true; } catch (e) { return false; } }
+const snapsOf = key => { if (!SNAPS) SNAPS = (DATA.snapsDefault && typeof DATA.snapsDefault === "object") ? JSON.parse(JSON.stringify(DATA.snapsDefault)) : {}; return SNAPS[key] || []; };
+const fmtT = t => { const m = Math.floor(t / 60), sec = t - m * 60; return m + ":" + (sec < 10 ? "0" : "") + sec.toFixed(1); };
+function snapsHTML(key){
+  const list = snapsOf(key);
+  if (!list.length) return "";
+  return `<span>Saved frames:</span>` + list.map((t, i) => `<span class="snapchip"><button type="button" data-snapgo="${t}" title="Show this frame">📌 ${list.length > 1 ? (i + 1) + " · " : ""}${fmtT(t)}</button><button type="button" data-snapdel="${t}" title="Remove this saved frame" aria-label="Remove saved frame">×</button></span>`).join("") +
+    `<button type="button" data-snapgo="0" data-snapplay title="Play the video from the start">▶ From start</button>`;
+}
 function setFav(n, on){ if (on === baseFav(n)) delete FAV_OVR[keyOf(n)]; else FAV_OVR[keyOf(n)] = on; }
 const SPEEDS = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8];
 let SPEED = 1;                                             // last picked speed is used for every video
@@ -752,7 +770,7 @@ function cardHTML(n){
        <dt>Air Time</dt><dd class="air">${n.air ? Number(n.air).toFixed(1) + "s" : "—"}</dd>`;
   const steps = (n.steps || []).map((s, i, all) => { const [l, c] = stepLabel(s, i, all); return `<li><b class="${c}">${l}</b><span>${esc(s)}</span></li>`; }).join("");
   return `
-  <article class="nade${isFav(n) ? " fav" : ""}" id="${cardId(n)}" data-key="${esc(keyOf(n))}" data-fav="${isFav(n) ? 1 : 0}" data-hid="${isHidden(n) ? 1 : 0}" data-map="${esc(n.map)}" data-side="${esc(n.team)}" data-type="${esc(n.type)}" data-zone="${ZONE.get(n)}"
+  <article class="nade${isFav(n) ? " fav" : ""}${snapsOf(keyOf(n)).length ? " has-snaps" : ""}" id="${cardId(n)}" data-key="${esc(keyOf(n))}" data-fav="${isFav(n) ? 1 : 0}" data-hid="${isHidden(n) ? 1 : 0}" data-map="${esc(n.map)}" data-side="${esc(n.team)}" data-type="${esc(n.type)}" data-zone="${ZONE.get(n)}"
            data-text="${esc([n.to, n.frm, n.mapName, LABEL.typeLong[n.type] || n.type, zoneTitle(n.map, ZONE.get(n)), ...(n.steps || []), ...(n.subs || [])].join(" ").toLowerCase())}">
     <div class="media">
       <div class="player" data-asset="${esc(n.asset)}">
@@ -764,8 +782,10 @@ function cardHTML(n){
       <div class="vctl"><span>Speed:</span>
         ${SPEEDS.map(r => `<button data-rate="${r}" aria-pressed="${r === SPEED}">${r}×</button>`).join("")}
         <span class="sp"></span>
+        <button data-snap title="Pause here and save this exact frame. The card will open on it next time.">📌 Save frame</button>
         <button data-loop aria-pressed="true">Loop</button>
       </div>
+      <div class="snaps">${snapsHTML(keyOf(n))}</div>
     </div>
     <div class="info">
       <h3><button class="favbtn" type="button" data-togglefav aria-pressed="${isFav(n)}" title="${isFav(n) ? "Remove from my favourites" : "Add to my favourites"}">${isFav(n) ? "★" : "☆"}</button>${esc(n.to)}<span class="zone ${ZONE.get(n)}" title="Lands in: ${esc(zoneTitle(n.map, ZONE.get(n)))}">${esc(zoneShort(n.map, ZONE.get(n)))}</span><span class="type ${esc(n.type)}">${esc(nice(LABEL.type, n.type))}</span><small>from ${esc(n.frm)} · ${esc(n.mapName)}</small></h3>
@@ -815,6 +835,7 @@ function render(){
     html += `</section>`;
   }
   $("#main").innerHTML = html;
+  watchSnaps();
 
   if (state.map !== "all" && !maps.find(m => m.id === state.map)) state.map = "all";
   const total = list.length;
@@ -881,19 +902,46 @@ function applyFilters(){
   pickActive();
 }
 
-function startVideo(player){
+// frameAt (seconds): open the video paused on that exact frame instead of playing it
+function startVideo(player, frameAt){
   const asset = player.dataset.asset;
   const card = player.closest(".nade");
+  const frame = typeof frameAt === "number";
   const v = document.createElement("video");
-  v.controls = true; v.playsInline = true; v.autoplay = true;
+  v.controls = true; v.playsInline = true; v.autoplay = !frame; v.preload = "auto";
   v.loop = card.querySelector("[data-loop]").getAttribute("aria-pressed") === "true";
-  v.poster = ASSET + asset + "/thumbnail.webp";
-  v.innerHTML = `<source src="${ASSET}${asset}/hq.webm" type="video/webm"><source src="${ASSET}${asset}/hq.mp4" type="video/mp4">`;
-  v.addEventListener("loadedmetadata", () => { v.playbackRate = SPEED; });
+  if (!frame) v.poster = ASSET + asset + "/thumbnail.webp";
+  const frag = frame ? "#t=" + frameAt : "";
+  v.innerHTML = `<source src="${ASSET}${asset}/hq.webm${frag}" type="video/webm"><source src="${ASSET}${asset}/hq.mp4${frag}" type="video/mp4">`;
+  v.addEventListener("loadedmetadata", () => { v.playbackRate = SPEED; if (frame) { try { v.currentTime = frameAt; } catch (e) {} } });
+  card.classList.add("has-video");
+  if (frame) { v.addEventListener("play", () => document.querySelectorAll("video").forEach(o => { if (o !== v) o.pause(); })); player.innerHTML = ""; player.appendChild(v); return v; }
   v.addEventListener("play", () => document.querySelectorAll("video").forEach(o => { if (o !== v) o.pause(); }));
   player.innerHTML = "";
   player.appendChild(v);
   v.play().catch(() => {});
+}
+
+// ---------- saved frames: cards with a saved frame open on it (loaded only when they come near the screen) ----------
+const snapObserver = "IntersectionObserver" in window ? new IntersectionObserver(entries => {
+  for (const en of entries) {
+    if (!en.isIntersecting) continue;
+    const card = en.target; snapObserver.unobserve(card);
+    const list = snapsOf(card.dataset.key);
+    if (list.length && !card.querySelector("video") && !card.querySelector(".blocked")) startVideo(card.querySelector(".player"), list[0]);
+  }
+}, { rootMargin: "400px 0px" }) : null;
+function watchSnaps(){ if (snapObserver) document.querySelectorAll(".nade.has-snaps").forEach(c => snapObserver.observe(c)); }
+function showFrame(card, t, play){
+  let v = card.querySelector("video");
+  if (!v) v = startVideo(card.querySelector(".player"), t);
+  const go = () => { try { v.currentTime = t; } catch (e) {} if (play) v.play().catch(() => {}); else v.pause(); };
+  if (v.readyState >= 1) go(); else v.addEventListener("loadedmetadata", go, { once: true });
+}
+function refreshSnaps(card){
+  const key = card.dataset.key;
+  card.classList.toggle("has-snaps", snapsOf(key).length > 0);
+  card.querySelector(".snaps").innerHTML = snapsHTML(key);
 }
 
 // ---------- side radar (csnades radar picture + callouts, positions on a 0-1000 grid) ----------
@@ -1235,6 +1283,7 @@ function parseFavList(text){
   const keys = Array.isArray(d) ? d : (d && Array.isArray(d.favourites) ? d.favourites : null);
   if (!keys || !keys.every(k => typeof k === "string")) throw new Error("that isn't a copied favourites list.");
   keys.hiddenList = d && Array.isArray(d.hidden) ? d.hidden.filter(k => typeof k === "string") : null;
+  keys.snaps = d && d.snaps && typeof d.snaps === "object" && !Array.isArray(d.snaps) ? d.snaps : null;
   return keys;
 }
 let confirmArm = null;
@@ -1318,7 +1367,7 @@ function applyUpdate(){
 }
 
 function buildFile(){
-  const baked = Object.assign({}, DATA, { favDefault: true, hiddenDefault: [...HIDDEN], nades: (DATA.nades || []).map(n => Object.assign({}, n, { fav: isFav(n) })) });
+  const baked = Object.assign({}, DATA, { favDefault: true, hiddenDefault: [...HIDDEN], snapsDefault: SNAPS || {}, nades: (DATA.nades || []).map(n => Object.assign({}, n, { fav: isFav(n) })) });
   const json = JSON.stringify(baked).replace(/</g, "\\u003c");
   const body = SNAP.body.map(part => part.startsWith('<script id="nade-data"')
     ? `<script id="nade-data" type="application/json">${json}<\/script>` : part);
@@ -1363,25 +1412,47 @@ document.addEventListener("click", e => {
   const tf = t.closest("[data-togglefav]");
   if (tf) { const key = tf.closest(".nade").dataset.key, n = NADE_BY_KEY.get(key); setFav(n, !isFav(n)); if (!saveFavs()) alertFav(); refreshFavUI([key]); if (RADAR.key === key) drawRadar(); return; }
   if (t.closest("#openFav")) { $("#favStatus").textContent = ""; $("#favDlg").classList.add("open"); return; }
-  if (t.closest("#favCopy")) { const keys = favKeysNow(); copyText(JSON.stringify({ cs2favourites: 1, favourites: keys, hidden: [...HIDDEN] }), t.closest("#favCopy")); favStatus(`Copied ${keys.length} favourites and ${HIDDEN.size} hidden nades — paste them to your friend. They open this sheet, click ⭐ Manage and paste it under step 2.`); return; }
+  if (t.closest("#favCopy")) { const keys = favKeysNow(); copyText(JSON.stringify({ cs2favourites: 1, favourites: keys, hidden: [...HIDDEN], snaps: SNAPS || {} }), t.closest("#favCopy")); favStatus(`Copied ${keys.length} favourites, ${HIDDEN.size} hidden nades and saved frames for ${Object.keys(SNAPS || {}).length} nades — paste them to your friend. They open this sheet, click ⭐ Manage and paste it under step 2.`); return; }
   const fa = t.closest("#favAdd, #favReplace");
   if (fa) {
     let keys; try { keys = parseFavList($("#favPaste").value.trim()); } catch (err) { favStatus("Couldn't read that: " + err.message, false); return; }
     const r = applyFavList(keys, fa.id === "favAdd" ? "add" : "replace");
     let hidMsg = "";
+    if (keys.snaps) {
+      let cnt = 0;
+      for (const [k, arr] of Object.entries(keys.snaps)) {
+        if (!NADE_BY_KEY.has(k) || !Array.isArray(arr)) continue;
+        const ts = arr.filter(x => typeof x === "number" && x >= 0 && x < 600).map(x => Math.round(x * 100) / 100); if (!ts.length) continue;
+        SNAPS[k] = [...new Set([...(fa.id === "favReplace" ? [] : snapsOf(k)), ...ts])].sort((x, y) => x - y); cnt++;
+        const card = document.querySelector(`.nade[data-key="${CSS.escape(k)}"]`); if (card) refreshSnaps(card);
+      }
+      if (cnt) { saveFavs(); watchSnaps(); hidMsg = ` Saved frames for ${cnt} nades.`; }
+    }
     if (keys.hiddenList && $("#favWithHidden").checked) {
       const known = new Set((DATA.nades || []).map(keyOf)), list = keys.hiddenList.filter(k => known.has(k));
       if (fa.id === "favReplace") HIDDEN = new Set(list); else list.forEach(k => HIDDEN.add(k));
       saveFavs();
       document.querySelectorAll(".nade").forEach(c => { const on = HIDDEN.has(c.dataset.key); c.dataset.hid = on ? "1" : "0"; c.querySelector("[data-hide]").textContent = on ? "👁 Unhide" : "🙈 Hide"; });
       renderFavSeg(); applyFilters(); if (view === "maps") drawMaps(false);
-      hidMsg = ` Hidden nades: ${HIDDEN.size}.`;
+      hidMsg += ` Hidden nades: ${HIDDEN.size}.`;
     }
     favStatus(`✓ ${fa.id === "favAdd" ? "Added" : "Replaced with"} ${r.matched} favourites${r.unknown ? ` (${r.unknown} aren't in this sheet — their maps or nades are missing here)` : ""}. You now have ${favKeysNow().length}.${hidMsg}`);
     return;
   }
   const fc = t.closest("#favClear"); if (fc) { armed(fc, "Click again to clear all", () => { (DATA.nades || []).forEach(n => setFav(n, false)); saveFavs(); refreshFavUI((DATA.nades || []).map(keyOf)); favStatus("All favourites cleared."); }); return; }
   const fr = t.closest("#favReset"); if (fr) { armed(fr, "Click again to reset", () => { FAV_OVR = {}; saveFavs(); refreshFavUI((DATA.nades || []).map(keyOf)); favStatus(`Your own star changes are removed — ${favKeysNow().length} favourites now.`); }); return; }
+  const sn = t.closest("[data-snap]");
+  if (sn) {
+    const card = sn.closest(".nade"), v = card.querySelector("video"); if (!v) return;
+    v.pause();
+    const key = card.dataset.key, tm = Math.round(v.currentTime * 100) / 100, list = snapsOf(key).filter(x => Math.abs(x - tm) > 0.05);
+    list.push(tm); list.sort((x, y) => x - y); SNAPS[key] = list; saveFavs(); refreshSnaps(card);
+    sn.textContent = "📌 Saved ✓"; setTimeout(() => { sn.textContent = "📌 Save frame"; }, 1500);
+    return;
+  }
+  const sg = t.closest("[data-snapgo]"); if (sg) { showFrame(sg.closest(".nade"), parseFloat(sg.dataset.snapgo), sg.hasAttribute("data-snapplay")); return; }
+  const sd = t.closest("[data-snapdel]");
+  if (sd) { const card = sd.closest(".nade"), key = card.dataset.key, tm = parseFloat(sd.dataset.snapdel); SNAPS[key] = snapsOf(key).filter(x => x !== tm); if (!SNAPS[key].length) delete SNAPS[key]; saveFavs(); refreshSnaps(card); return; }
   const hb = t.closest("[data-hide]");
   if (hb) { const card = hb.closest(".nade"), key = card.dataset.key, on = !HIDDEN.has(key); if (on) HIDDEN.add(key); else HIDDEN.delete(key); saveFavs();
     card.dataset.hid = on ? "1" : "0"; hb.textContent = on ? "👁 Unhide" : "🙈 Hide"; const v = card.querySelector("video"); if (v && on) v.pause();
