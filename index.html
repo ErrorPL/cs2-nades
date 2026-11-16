@@ -151,7 +151,9 @@
   .side.t{background:rgba(226,178,74,.15);color:var(--t);border:1px solid rgba(226,178,74,.4)}
   .side.ct{background:rgba(91,157,255,.15);color:var(--ct);border:1px solid rgba(91,157,255,.4)}
   .chips{color:var(--muted);font-size:13px}
-  .chips a{color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted)}
+  .chips a{color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted);margin-right:10px;display:inline-block}
+  .chips a.hidden{display:none}
+  .hidebtn{color:var(--muted)}
   .chips a:hover{color:var(--text)}
   .type{display:inline-block;font:700 10px Inter,sans-serif;text-transform:uppercase;letter-spacing:.08em;padding:2px 7px;border-radius:4px;border:1px solid currentColor;vertical-align:middle}
   .type.smoke{color:var(--smoke)} .type.molotov{color:var(--molotov)} .type.flashbang{color:var(--flashbang)} .type.he{color:var(--he)} .type.combination{color:var(--combination)}
@@ -398,8 +400,16 @@
       <button class="ghost" type="button" data-download>Download sheet with my favourites</button>
     </div></div>
     <div class="step"><span class="n">4</span><div>
+      <p><b>The sheet's built-in picks</b> (<span id="favBuiltinN"></span> nades, synced from csnades by the sheet's owner). Off by default so you build your own list; switch on to see them as favourites too.</p>
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="favBuiltin"> Show the built-in picks as favourites</label>
+    </div></div>
+    <div class="step"><span class="n">5</span><div>
+      <p><b>Hidden nades</b>: <b>🙈 Hide</b> on a card removes it from the list, radar and maps. Find them under the <b>🙈 Hidden</b> filter and click <b>👁 Unhide</b> to bring one back.</p>
+      <button class="ghost" type="button" id="unhideAll">Unhide all</button>
+    </div></div>
+    <div class="step"><span class="n">6</span><div>
       <p><b>Start over</b></p>
-      <div class="row"><button class="ghost warn" type="button" id="favClear">Clear all my favourites</button><button class="ghost" type="button" id="favReset">Go back to the file's favourites</button></div>
+      <div class="row"><button class="ghost warn" type="button" id="favClear">Clear all my favourites</button><button class="ghost" type="button" id="favReset">Undo my own star changes</button></div>
     </div></div>
     <div class="status" id="favStatus"></div>
   </div>
@@ -664,11 +674,20 @@ try { const ui = JSON.parse(localStorage.getItem(UI_KEY) || "{}"); if (ui.fav ==
 // Favourites: the list built into the file (csnades sync) plus this browser's own changes on top.
 const FAV_KEY = "cs2-nade-cheatsheet-myfavs";
 let FAV_OVR = {};
-try { const o = JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); if (o && typeof o.set === "object") FAV_OVR = o.set; } catch (e) {}
+let USE_BUILTIN = null;                                   // show the list built into the sheet? (off for new visitors)
+let HIDDEN = new Set();                                   // nades this browser has hidden
+try {
+  const o = JSON.parse(localStorage.getItem(FAV_KEY) || "{}");
+  if (o && typeof o.set === "object") { FAV_OVR = o.set; USE_BUILTIN = typeof o.builtin === "boolean" ? o.builtin : true; }   // v1 = used the built-in list
+  if (o && Array.isArray(o.hidden)) HIDDEN = new Set(o.hidden);
+} catch (e) {}
 const builtinFav = n => n.fav !== false;                  // older lists only had favourites
-const isFav = n => { const o = FAV_OVR[keyOf(n)]; return o === undefined ? builtinFav(n) : o; };
-function saveFavs(){ try { localStorage.setItem(FAV_KEY, JSON.stringify({ v: 1, set: FAV_OVR })); return true; } catch (e) { return false; } }
-function setFav(n, on){ if (on === builtinFav(n)) delete FAV_OVR[keyOf(n)]; else FAV_OVR[keyOf(n)] = on; }
+const useBuiltin = () => USE_BUILTIN === null ? DATA.favDefault === true : USE_BUILTIN;
+const baseFav = n => useBuiltin() && builtinFav(n);
+const isFav = n => { const o = FAV_OVR[keyOf(n)]; return o === undefined ? baseFav(n) : o; };
+const isHidden = n => HIDDEN.has(keyOf(n));
+function saveFavs(){ try { localStorage.setItem(FAV_KEY, JSON.stringify({ v: 2, set: FAV_OVR, builtin: useBuiltin(), hidden: [...HIDDEN] })); return true; } catch (e) { return false; } }
+function setFav(n, on){ if (on === baseFav(n)) delete FAV_OVR[keyOf(n)]; else FAV_OVR[keyOf(n)] = on; }
 const SPEEDS = [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8];
 let SPEED = 1;                                             // last picked speed is used for every video
 try { const ui = JSON.parse(localStorage.getItem(UI_KEY) || "{}"); if (SPEEDS.includes(ui.speed)) SPEED = ui.speed; } catch (e) {}
@@ -732,7 +751,7 @@ function cardHTML(n){
        <dt>Air Time</dt><dd class="air">${n.air ? Number(n.air).toFixed(1) + "s" : "—"}</dd>`;
   const steps = (n.steps || []).map((s, i, all) => { const [l, c] = stepLabel(s, i, all); return `<li><b class="${c}">${l}</b><span>${esc(s)}</span></li>`; }).join("");
   return `
-  <article class="nade${isFav(n) ? " fav" : ""}" id="${cardId(n)}" data-key="${esc(keyOf(n))}" data-fav="${isFav(n) ? 1 : 0}" data-map="${esc(n.map)}" data-side="${esc(n.team)}" data-type="${esc(n.type)}" data-zone="${ZONE.get(n)}"
+  <article class="nade${isFav(n) ? " fav" : ""}" id="${cardId(n)}" data-key="${esc(keyOf(n))}" data-fav="${isFav(n) ? 1 : 0}" data-hid="${isHidden(n) ? 1 : 0}" data-map="${esc(n.map)}" data-side="${esc(n.team)}" data-type="${esc(n.type)}" data-zone="${ZONE.get(n)}"
            data-text="${esc([n.to, n.frm, n.mapName, LABEL.typeLong[n.type] || n.type, zoneTitle(n.map, ZONE.get(n)), ...(n.steps || []), ...(n.subs || [])].join(" ").toLowerCase())}">
     <div class="media">
       <div class="player" data-asset="${esc(n.asset)}">
@@ -757,7 +776,7 @@ function cardHTML(n){
         </button>
         <span>🎯 <b>Aim point</b><br>put your crosshair here<br><small>3× zoom · click to enlarge</small></span>
       </div>
-      <div class="links linkrow"><a href="${SITE}${esc(n.path)}" target="_blank" rel="noopener">Open on csnades.gg ↗</a>${n.t ? `<button class="onradar" type="button" data-onradar>🗺 Show on radar</button>` : ""}</div>
+      <div class="links linkrow"><a href="${SITE}${esc(n.path)}" target="_blank" rel="noopener">Open on csnades.gg ↗</a>${n.t ? `<button class="onradar" type="button" data-onradar>🗺 Show on radar</button>` : ""}<button class="onradar hidebtn" type="button" data-hide>${isHidden(n) ? "👁 Unhide" : "🙈 Hide"}</button></div>
     </div>
   </article>`;
 }
@@ -787,7 +806,7 @@ function render(){
         html += `<div class="group"><div class="ghead">
           <h3><span class="lbl">📍 Throw from</span>${esc(g.frm)}</h3>
           <span class="side ${esc(g.team)}">${esc(sideLabel(g.team))}</span>
-          <span class="chips">${g.items.map(n => `<a href="#${cardId(n)}" data-chip="${esc(keyOf(n))}">${isFav(n) ? "⭐" : ""}${esc(n.to)}</a>`).join(" · ")}</span>
+          <span class="chips">${g.items.map(n => `<a href="#${cardId(n)}" data-chip="${esc(keyOf(n))}">${isFav(n) ? "⭐" : ""}${esc(n.to)}</a>`).join("")}</span>
         </div>${g.items.map(cardHTML).join("")}</div>`;
       }
       html += `</div>`;
@@ -821,7 +840,7 @@ function render(){
 // small screens: filters fold away behind one button that shows what is selected
 function updateFiltSum(){
   const parts = [];
-  if (state.fav === "fav") parts.push("⭐");
+  if (state.fav === "fav") parts.push("⭐"); if (state.fav === "hidden") parts.push("🙈 Hidden");
   const mapBtn = document.querySelector(`#tabs .tab[data-map="${CSS.escape(state.map)}"]`);
   parts.push(state.map === "all" ? "All maps" : (mapBtn ? mapBtn.childNodes[0].textContent : state.map));
   if (state.side !== "all") parts.push(state.side.toUpperCase());
@@ -835,7 +854,8 @@ function updateFiltSum(){
 function applyFilters(){
   let shown = 0;
   document.querySelectorAll(".nade").forEach(el => {
-    const ok = (state.fav === "all" || el.dataset.fav === "1")
+    const hid = el.dataset.hid === "1";
+    const ok = (state.fav === "hidden" ? hid : !hid && (state.fav === "all" || el.dataset.fav === "1"))
             && (state.map === "all" || el.dataset.map === state.map)
             && (state.side === "all" || el.dataset.side === state.side || el.dataset.side === "any")
             && (state.type === "all" || el.dataset.type === state.type)
@@ -853,8 +873,9 @@ function applyFilters(){
   document.querySelectorAll("#side button").forEach(b => b.setAttribute("aria-pressed", b.dataset.side === state.side));
   document.querySelectorAll("#types button").forEach(b => b.setAttribute("aria-pressed", b.dataset.type === state.type));
   document.querySelectorAll("#favs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.fav === state.fav));
-  $("#count").textContent = `${shown} of ${(DATA.nades || []).length} nades`;
-  $("#empty").textContent = state.fav === "fav" && !(DATA.nades || []).some(isFav) ? "No favourites yet — switch to All nades and click ☆ next to a nade's name." : "Nothing matches that filter.";
+  document.querySelectorAll(".chips a").forEach(a => { const c = document.getElementById(a.getAttribute("href").slice(1)); a.classList.toggle("hidden", !c || c.classList.contains("hidden")); });
+  $("#count").textContent = state.fav === "hidden" ? `${shown} hidden nades` : `${shown} of ${(DATA.nades || []).filter(n => !isHidden(n)).length} nades`;
+  $("#empty").textContent = state.fav === "fav" && !(DATA.nades || []).some(isFav) ? "No favourites yet — switch to All nades and click ☆ next to a nade's name. (Looking for the sheet's built-in picks? ⭐ Manage → switch them on.)" : "Nothing matches that filter.";
   $("#empty").style.display = shown ? "none" : "block";
   pickActive();
 }
@@ -1098,7 +1119,7 @@ function drawMaps(resetView){
   }
   if (MV.spots !== "off") {
     for (const o of [...(DATA.nades || [])].sort((x, y) => isFav(x) - isFav(y))) {
-      if (o.map !== MV.map || !onLevel(o.t) || (MV.spots === "fav" && !isFav(o))) continue;
+      if (o.map !== MV.map || !onLevel(o.t) || isHidden(o) || (MV.spots === "fav" && !isFav(o))) continue;
       html += `<button type="button" class="mk land ${esc(o.type)}${isFav(o) ? " fav" : ""}" style="left:${o.t.x / 10}%;top:${o.t.y / 10}%" data-open="${esc(keyOf(o))}" title="${esc((isFav(o) ? "⭐ " : "") + o.to + " — from " + o.frm + " (" + (LABEL.typeLong[o.type] || o.type) + ")")}"></button>`;
     }
   }
@@ -1172,8 +1193,11 @@ function openNade(key){
 // ---------- your favourites: star toggles, sharing, import ----------
 function renderFavSeg(list){
   list = list || DATA.nades || [];
-  const total = list.length, favCount = list.filter(isFav).length;
-  $("#favs").innerHTML = total ? `<button data-fav="all">All nades<b>${total}</b></button><button data-fav="fav">⭐ Favourites<b>${favCount}</b></button>` : "";
+  const vis = list.filter(n => !isHidden(n)), total = vis.length, favCount = vis.filter(isFav).length, hid = list.length - total;
+  if (state.fav === "hidden" && !hid) state.fav = "all";
+  $("#favs").innerHTML = list.length ? `<button data-fav="all">All nades<b>${total}</b></button><button data-fav="fav">⭐ Favourites<b>${favCount}</b></button>` + (hid ? `<button data-fav="hidden">🙈 Hidden<b>${hid}</b></button>` : "") : "";
+  const bi = $("#favBuiltin"); if (bi) { bi.checked = useBuiltin(); $("#favBuiltinN").textContent = (DATA.nades || []).filter(builtinFav).length; }
+  const ua = $("#unhideAll"); if (ua) ua.textContent = `Unhide all (${hid})`;
   document.querySelectorAll("#favs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.fav === state.fav));
 }
 function refreshFavUI(keys){
@@ -1280,7 +1304,7 @@ function applyUpdate(){
   const before = new Set((DATA.nades || []).map(keyOf)), after = new Set(d.nades.map(keyOf));
   const added = d.nades.filter(n => !before.has(keyOf(n)));
   const removed = (DATA.nades || []).filter(n => !after.has(keyOf(n)));
-  DATA = d; unsaved = true;
+  DATA = d; unsaved = true; USE_BUILTIN = true; saveFavs();
   try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch (e) {}
   render(); applyFilters(); if (view === "maps") drawMaps(false);
   st.className = "status ok";
@@ -1292,7 +1316,7 @@ function applyUpdate(){
 }
 
 function buildFile(){
-  const baked = Object.assign({}, DATA, { nades: (DATA.nades || []).map(n => Object.assign({}, n, { fav: isFav(n) })) });
+  const baked = Object.assign({}, DATA, { favDefault: true, nades: (DATA.nades || []).map(n => Object.assign({}, n, { fav: isFav(n) })) });
   const json = JSON.stringify(baked).replace(/</g, "\\u003c");
   const body = SNAP.body.map(part => part.startsWith('<script id="nade-data"')
     ? `<script id="nade-data" type="application/json">${json}<\/script>` : part);
@@ -1346,7 +1370,12 @@ document.addEventListener("click", e => {
     return;
   }
   const fc = t.closest("#favClear"); if (fc) { armed(fc, "Click again to clear all", () => { (DATA.nades || []).forEach(n => setFav(n, false)); saveFavs(); refreshFavUI((DATA.nades || []).map(keyOf)); favStatus("All favourites cleared."); }); return; }
-  const fr = t.closest("#favReset"); if (fr) { armed(fr, "Click again to reset", () => { FAV_OVR = {}; saveFavs(); refreshFavUI((DATA.nades || []).map(keyOf)); favStatus(`Back to the file's ${favKeysNow().length} favourites.`); }); return; }
+  const fr = t.closest("#favReset"); if (fr) { armed(fr, "Click again to reset", () => { FAV_OVR = {}; saveFavs(); refreshFavUI((DATA.nades || []).map(keyOf)); favStatus(`Your own star changes are removed — ${favKeysNow().length} favourites now.`); }); return; }
+  const hb = t.closest("[data-hide]");
+  if (hb) { const card = hb.closest(".nade"), key = card.dataset.key, on = !HIDDEN.has(key); if (on) HIDDEN.add(key); else HIDDEN.delete(key); saveFavs();
+    card.dataset.hid = on ? "1" : "0"; hb.textContent = on ? "👁 Unhide" : "🙈 Hide"; const v = card.querySelector("video"); if (v && on) v.pause();
+    renderFavSeg(); applyFilters(); if (view === "maps") drawMaps(false); return; }
+  if (t.closest("#unhideAll")) { const n = HIDDEN.size; HIDDEN.clear(); saveFavs(); document.querySelectorAll('.nade[data-hid="1"]').forEach(c => { c.dataset.hid = "0"; c.querySelector("[data-hide]").textContent = "🙈 Hide"; }); renderFavSeg(); applyFilters(); if (view === "maps") drawMaps(false); favStatus(`${n} nades are visible again.`); return; }
   const mvm = t.closest("[data-mvmap]"); if (mvm) { MV.map = mvm.dataset.mvmap; MV.level = 1; drawMaps(true); return; }
   const mvl = t.closest("[data-mvlevel]"); if (mvl) { MV.level = +mvl.dataset.mvlevel; drawMaps(false); return; }
   const mvc = t.closest("#mvCall [data-call]"); if (mvc) { MV.call = mvc.dataset.call; drawMaps(false); return; }
@@ -1414,6 +1443,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { $("#lb").c
 function alertFav(){ favStatus("This browser won't save favourites here (private window?). Use 'Download sheet with my favourites' to keep them.", false); $("#favDlg").classList.add("open"); }
 $("#q").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); applyFilters(); });
 $("#rCall").addEventListener("change", e => { RADAR.callouts = e.target.checked; drawRadar(); });
+$("#favBuiltin").addEventListener("change", e => { USE_BUILTIN = e.target.checked; saveFavs(); render(); applyFilters(); if (view === "maps") drawMaps(false); favStatus(USE_BUILTIN ? "Built-in picks are shown as favourites." : "Built-in picks are off — only your own stars count."); });
 $("#mvSites").addEventListener("change", e => { MV.sites = e.target.checked; drawMaps(false); });
 $("#main").addEventListener("mouseover", e => {
   const c = e.target.closest(".nade");
